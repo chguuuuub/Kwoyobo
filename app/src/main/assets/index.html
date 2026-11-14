@@ -8,9 +8,11 @@
 header{position:sticky;top:0;background:var(--bg);padding:10px 12px 0;z-index:5}
 h1{margin:0 0 8px;font-size:20px}
 input{width:100%;padding:9px 12px;border-radius:10px;border:0;background:var(--card);color:var(--tx);font-size:15px}
-nav{display:flex;gap:8px;overflow-x:auto;padding:10px 0}
+nav{display:flex;gap:8px;overflow-x:auto;padding:10px 0 4px}
 nav button{flex:none;border:0;border-radius:16px;padding:6px 14px;background:var(--card);color:var(--tx);font-size:14px}
 nav button.on{background:var(--ac);color:#fff}
+#modes{padding:0 0 8px}
+#modes button{padding:4px 11px;font-size:13px}
 main{padding:4px 12px 40px;display:grid;gap:12px}
 .c{background:var(--card);border-radius:14px;overflow:hidden}
 .c img{width:100%;max-height:220px;object-fit:cover;display:block}
@@ -20,7 +22,7 @@ main{padding:4px 12px 40px;display:grid;gap:12px}
 .a button{border:0;border-radius:8px;padding:6px 12px;background:var(--bg);color:var(--tx);font-size:13px}
 .msg{text-align:center;color:var(--sub);padding:30px}
 </style></head><body>
-<header><h1>🌍 全球新闻</h1><input id="q" placeholder="搜索标题…"><nav id="nav"></nav></header>
+<header><h1>🌍 全球新闻</h1><input id="q" placeholder="搜索全部分类的标题、摘要、来源…"><nav id="nav"></nav><nav id="modes"></nav></header>
 <main id="list"></main>
 <script>
 const F={
@@ -31,11 +33,13 @@ const F={
  "科技":[["BBC Tech","https://feeds.bbci.co.uk/news/technology/rss.xml"],["Ars Technica","https://feeds.arstechnica.com/arstechnica/index"]],
  "视频":[["Al Jazeera English","https://www.youtube.com/feeds/videos.xml?channel_id=UCNye-wNBqNEi2lCW_0ofKYg"],["DW News","https://www.youtube.com/feeds/videos.xml?channel_id=UCknLrEdhRCp1aegoMqRaCZg"]]
 };
+const MODES=[["all","全部"],["img","📷 图片"],["vid","▶ 视频"],["txt","📝 纯文字"]];
 let n=0;const cbs={};
 window.__cb=(i,t)=>{cbs[i](t);delete cbs[i]};
 const get=u=>new Promise(r=>{const i=++n;cbs[i]=r;window.Android?Android.get(i,u):r("")});
 const esc=s=>s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const cache={};let items=[],tab="国际",speaking=null;
+const cache={};let items=[],tab="国际",mode="all",speaking=null,tok=0,timer=null;
+const $=id=>document.getElementById(id);
 function parse(xml,src){
  const d=new DOMParser().parseFromString(xml,"text/xml");
  return [...d.querySelectorAll("item,entry")].slice(0,12).map(e=>{
@@ -51,18 +55,36 @@ function parse(xml,src){
   return{title:g("title").trim(),link:link.trim(),img,desc,src,date:isNaN(date)?0:+date,video:/youtube\.com/.test(link)};
  }).filter(x=>x.title&&x.link);
 }
-async function load(t){
- tab=t;nav();const L=document.getElementById("list");
- if(!window.Android){L.innerHTML='<div class="msg">请在 App 中打开（浏览器里无法跨域抓取新闻）</div>';return}
- if(!cache[t]){L.innerHTML='<div class="msg">加载中…</div>';
+async function ensure(t){
+ if(!cache[t]){
   const r=await Promise.all(F[t].map(async([s,u])=>{try{return parse(await get(u),s)}catch(e){return[]}}));
   cache[t]=r.flat().sort((a,b)=>b.date-a.date)}
- items=cache[t];render();
+ return cache[t];
 }
-function render(){
- const k=document.getElementById("q").value.toLowerCase();
- const v=items.map((x,i)=>[x,i]).filter(([x])=>!k||x.title.toLowerCase().includes(k));
- document.getElementById("list").innerHTML=v.length?v.map(([x,i])=>`<div class="c">${x.img?`<img loading="lazy" src="${esc(x.img)}" onerror="this.remove()">`:""}<div class="b"><div class="t">${esc(x.title)}</div><div class="m">${esc(x.src)}${x.date?" · "+new Date(x.date).toLocaleString():""}</div><div class="d">${esc(x.desc)}</div><div class="a"><button onclick="speak(${i},this)">🔊 朗读</button><button onclick="go(${i})">${x.video?"▶ 观看":"阅读原文"}</button><button onclick="share(${i})">分享</button></div></div></div>`).join(""):'<div class="msg">暂无内容（网络不通或源不可用）</div>';
+function load(t){tab=t;$("q").value="";nav();refresh()}
+function setMode(m){mode=m;nav();refresh()}
+async function refresh(){
+ const my=++tok,L=$("list"),k=$("q").value.trim().toLowerCase();
+ if(!window.Android){L.innerHTML='<div class="msg">请在 App 中打开（浏览器里无法跨域抓取新闻）</div>';return}
+ let pool;
+ if(k){
+  L.innerHTML='<div class="msg">正在搜索全部分类…</div>';
+  const all=await Promise.all(Object.keys(F).map(ensure));
+  if(my!==tok)return;
+  const seen=new Set();
+  pool=all.flat().filter(x=>!seen.has(x.link)&&seen.add(x.link)).sort((a,b)=>b.date-a.date);
+ }else{
+  if(!cache[tab])L.innerHTML='<div class="msg">加载中…</div>';
+  pool=await ensure(tab);
+  if(my!==tok)return;
+ }
+ items=pool.filter(x=>
+  (!k||(x.title+" "+x.desc+" "+x.src).toLowerCase().includes(k))&&
+  (mode==="all"||(mode==="img"&&x.img&&!x.video)||(mode==="vid"&&x.video)||(mode==="txt"&&!x.img&&!x.video)));
+ render(k);
+}
+function render(k){
+ $("list").innerHTML=items.length?items.map((x,i)=>`<div class="c">${x.img?`<img loading="lazy" src="${esc(x.img)}" onerror="this.remove()">`:""}<div class="b"><div class="t">${esc(x.title)}</div><div class="m">${esc(x.src)}${x.video?" · 视频":x.img?" · 图文":""}${x.date?" · "+new Date(x.date).toLocaleString():""}</div><div class="d">${esc(x.desc)}</div><div class="a"><button onclick="speak(${i},this)">🔊 朗读</button><button onclick="go(${i})">${x.video?"▶ 观看":"阅读原文"}</button><button onclick="share(${i})">分享</button></div></div></div>`).join(""):'<div class="msg">没有找到相关内容</div>';
 }
 function go(i){location.href=items[i].link}
 function share(i){if(navigator.share)navigator.share({title:items[i].title,url:items[i].link})}
@@ -73,7 +95,10 @@ function speak(i,btn){
  u.lang=/[\u4e00-\u9fff]/.test(s)?"zh-CN":"en-US";u.onend=()=>{speaking=null;btn.textContent="🔊 朗读"};
  speaking=i;btn.textContent="⏹ 停止";speechSynthesis.speak(u);
 }
-function nav(){document.getElementById("nav").innerHTML=Object.keys(F).map(k=>`<button class="${k===tab?"on":""}" onclick="load('${k}')">${k}</button>`).join("")}
-document.getElementById("q").oninput=render;
-load(tab);
+function nav(){
+ $("nav").innerHTML=Object.keys(F).map(k=>`<button class="${k===tab?"on":""}" onclick="load('${k}')">${k}</button>`).join("");
+ $("modes").innerHTML=MODES.map(([k,v])=>`<button class="${k===mode?"on":""}" onclick="setMode('${k}')">${v}</button>`).join("");
+}
+$("q").oninput=()=>{clearTimeout(timer);timer=setTimeout(refresh,400)};
+nav();refresh();
 </script></body></html>
