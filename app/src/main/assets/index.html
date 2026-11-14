@@ -1,0 +1,79 @@
+<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>全球新闻</title>
+<style>
+:root{--bg:#f5f5f7;--card:#fff;--tx:#111;--sub:#666;--ac:#d6322b}
+@media(prefers-color-scheme:dark){:root{--bg:#111;--card:#1d1d1f;--tx:#eee;--sub:#999}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.45 system-ui,sans-serif}
+header{position:sticky;top:0;background:var(--bg);padding:10px 12px 0;z-index:5}
+h1{margin:0 0 8px;font-size:20px}
+input{width:100%;padding:9px 12px;border-radius:10px;border:0;background:var(--card);color:var(--tx);font-size:15px}
+nav{display:flex;gap:8px;overflow-x:auto;padding:10px 0}
+nav button{flex:none;border:0;border-radius:16px;padding:6px 14px;background:var(--card);color:var(--tx);font-size:14px}
+nav button.on{background:var(--ac);color:#fff}
+main{padding:4px 12px 40px;display:grid;gap:12px}
+.c{background:var(--card);border-radius:14px;overflow:hidden}
+.c img{width:100%;max-height:220px;object-fit:cover;display:block}
+.b{padding:12px}.t{font-weight:600;font-size:16px;margin:0 0 6px}
+.m{color:var(--sub);font-size:12px;margin-bottom:6px}.d{color:var(--sub);font-size:14px}
+.a{display:flex;gap:8px;margin-top:10px}
+.a button{border:0;border-radius:8px;padding:6px 12px;background:var(--bg);color:var(--tx);font-size:13px}
+.msg{text-align:center;color:var(--sub);padding:30px}
+</style></head><body>
+<header><h1>🌍 全球新闻</h1><input id="q" placeholder="搜索标题…"><nav id="nav"></nav></header>
+<main id="list"></main>
+<script>
+const F={
+ "国际":[["BBC","https://feeds.bbci.co.uk/news/world/rss.xml"],["半岛","https://www.aljazeera.com/xml/rss/all.xml"],["DW","https://rss.dw.com/rdf/rss-en-all"],["Guardian","https://www.theguardian.com/world/rss"],["NPR","https://feeds.npr.org/1004/rss.xml"]],
+ "中文":[["BBC中文","https://feeds.bbci.co.uk/zhongwen/simp/rss.xml"],["DW中文","https://rss.dw.com/xml/rss-chi-all"]],
+ "亚洲":[["BBC Asia","https://feeds.bbci.co.uk/news/world/asia/rss.xml"],["Guardian Asia","https://www.theguardian.com/world/asia-pacific/rss"]],
+ "财经":[["BBC Business","https://feeds.bbci.co.uk/news/business/rss.xml"],["NYT Business","https://rss.nytimes.com/services/xml/rss/nyt/Business.xml"]],
+ "科技":[["BBC Tech","https://feeds.bbci.co.uk/news/technology/rss.xml"],["Ars Technica","https://feeds.arstechnica.com/arstechnica/index"]],
+ "视频":[["Al Jazeera English","https://www.youtube.com/feeds/videos.xml?channel_id=UCNye-wNBqNEi2lCW_0ofKYg"],["DW News","https://www.youtube.com/feeds/videos.xml?channel_id=UCknLrEdhRCp1aegoMqRaCZg"]]
+};
+let n=0;const cbs={};
+window.__cb=(i,t)=>{cbs[i](t);delete cbs[i]};
+const get=u=>new Promise(r=>{const i=++n;cbs[i]=r;window.Android?Android.get(i,u):r("")});
+const esc=s=>s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const cache={};let items=[],tab="国际",speaking=null;
+function parse(xml,src){
+ const d=new DOMParser().parseFromString(xml,"text/xml");
+ return [...d.querySelectorAll("item,entry")].slice(0,12).map(e=>{
+  const g=t=>(e.getElementsByTagName(t)[0]||{}).textContent||"";
+  const l=e.getElementsByTagName("link")[0];
+  const link=(l&&(l.getAttribute("href")||l.textContent))||"";
+  const raw=g("description")||g("summary")||g("content:encoded");
+  const m=e.getElementsByTagName("media:thumbnail")[0]||e.getElementsByTagName("media:content")[0]||e.getElementsByTagName("enclosure")[0];
+  let img=m&&m.getAttribute("url");
+  if(!img){const x=/<img[^>]+src="([^"]+)"/.exec(raw);img=x&&x[1]}
+  const desc=raw.replace(/<[^>]*>/g," ").replace(/\s+/g," ").trim().slice(0,200);
+  const date=new Date(g("pubDate")||g("published")||g("dc:date")||g("updated"));
+  return{title:g("title").trim(),link:link.trim(),img,desc,src,date:isNaN(date)?0:+date,video:/youtube\.com/.test(link)};
+ }).filter(x=>x.title&&x.link);
+}
+async function load(t){
+ tab=t;nav();const L=document.getElementById("list");
+ if(!window.Android){L.innerHTML='<div class="msg">请在 App 中打开（浏览器里无法跨域抓取新闻）</div>';return}
+ if(!cache[t]){L.innerHTML='<div class="msg">加载中…</div>';
+  const r=await Promise.all(F[t].map(async([s,u])=>{try{return parse(await get(u),s)}catch(e){return[]}}));
+  cache[t]=r.flat().sort((a,b)=>b.date-a.date)}
+ items=cache[t];render();
+}
+function render(){
+ const k=document.getElementById("q").value.toLowerCase();
+ const v=items.map((x,i)=>[x,i]).filter(([x])=>!k||x.title.toLowerCase().includes(k));
+ document.getElementById("list").innerHTML=v.length?v.map(([x,i])=>`<div class="c">${x.img?`<img loading="lazy" src="${esc(x.img)}" onerror="this.remove()">`:""}<div class="b"><div class="t">${esc(x.title)}</div><div class="m">${esc(x.src)}${x.date?" · "+new Date(x.date).toLocaleString():""}</div><div class="d">${esc(x.desc)}</div><div class="a"><button onclick="speak(${i},this)">🔊 朗读</button><button onclick="go(${i})">${x.video?"▶ 观看":"阅读原文"}</button><button onclick="share(${i})">分享</button></div></div></div>`).join(""):'<div class="msg">暂无内容（网络不通或源不可用）</div>';
+}
+function go(i){location.href=items[i].link}
+function share(i){if(navigator.share)navigator.share({title:items[i].title,url:items[i].link})}
+function speak(i,btn){
+ speechSynthesis.cancel();
+ if(speaking===i){speaking=null;btn.textContent="🔊 朗读";return}
+ const x=items[i],s=x.title+"。"+x.desc,u=new SpeechSynthesisUtterance(s);
+ u.lang=/[\u4e00-\u9fff]/.test(s)?"zh-CN":"en-US";u.onend=()=>{speaking=null;btn.textContent="🔊 朗读"};
+ speaking=i;btn.textContent="⏹ 停止";speechSynthesis.speak(u);
+}
+function nav(){document.getElementById("nav").innerHTML=Object.keys(F).map(k=>`<button class="${k===tab?"on":""}" onclick="load('${k}')">${k}</button>`).join("")}
+document.getElementById("q").oninput=render;
+load(tab);
+</script></body></html>
